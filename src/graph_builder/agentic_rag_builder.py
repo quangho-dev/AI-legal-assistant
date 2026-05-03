@@ -1,7 +1,7 @@
 """Graph builder for LangGraph workflow"""
 
 from re import S
-from src.state.rag_state import RAGState
+from src.state.rag_state import AgenticRAGState
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -42,7 +42,7 @@ class AgenticGraphBuilder:
             Compiled graph instance
         """
         # Create state graph
-        workflow = StateGraph(MessagesState)
+        workflow = StateGraph(AgenticRAGState)
         
       # Define the nodes we will cycle between
         workflow.add_node(self.nodes.generate_query_or_respond)
@@ -107,12 +107,6 @@ class AgenticGraphBuilder:
         if self.graph is None:
             self.build()  # must assign compiled graph
 
-        input_data = {
-            "messages": [
-                HumanMessage(content=question)
-            ]
-        }
-
         return self.graph.invoke({
         "messages": [
             {
@@ -125,12 +119,6 @@ class AgenticGraphBuilder:
     def run(self, question: str) -> dict:
         if self.graph is None:
             self.build()  # must assign compiled graph
-
-        input_data = {
-            "messages": [
-                HumanMessage(content=question)
-            ]
-        }
 
         return self.graph.invoke({
         "messages": [

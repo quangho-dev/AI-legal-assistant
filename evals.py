@@ -33,7 +33,7 @@ import getpass
 from langchain_groq import ChatGroq
 import mlflow
 from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
-from src.tools.agentic_rag import AgenticRAGTool
+from src.tools.agentic_rag import retrieve_docs
 
 import sys
 from pathlib import Path
@@ -80,7 +80,7 @@ logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 def download_and_save_dataset() -> Path:
     """Download the HuggingFace doc Q&A dataset from GitHub."""
-    dataset_path = Path("datasets/civil_law_qa_eval.csv")
+    dataset_path = Path("datasets/mini_version_of_examples.csv")
     dataset_path.parent.mkdir(parents=True, exist_ok=True)
 
     if dataset_path.exists():
@@ -105,13 +105,13 @@ def download_and_save_dataset() -> Path:
 
 def create_ragas_dataset(dataset_path: Path) -> Dataset:
     """Create a Ragas Dataset from the downloaded CSV file."""
-    dataset = Dataset(name="civil_law_qa_eval", backend="local/csv", root_dir="evals")
+    dataset = Dataset(name="mini_version_of_examples", backend="local/csv", root_dir="evals")
     
     import pandas as pd
     df = pd.read_csv(dataset_path)
     
     for _, row in df.iterrows():
-        dataset.append({"question": row["question"], "expected_answer": row["expected_answer"]})
+        dataset.append({"question": row["inputs/question"], "expected_answer": row["outputs/answer"]})
     
     dataset.save()
     logger.info(f"Created Ragas dataset with {len(df)} samples")
@@ -206,8 +206,8 @@ async def evaluate_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     
     # Query the RAG system
     rag_response = await rag.arun(question)
-    model_response = rag_response.get("answer", "")
-
+    model_response = rag_response.get('answer')
+ 
     # Evaluate correctness asynchronously
     score = await correctness_metric.ascore(
         question=question,
@@ -294,10 +294,10 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     question = row["question"]
     
     # Query the RAG system
-    rag_result = await rag.run(question)
+    rag_response = await rag.arun(question)
 
-    model_response = rag_result['messages'][-1]['content']
-
+    model_response = rag_response["messages"][-1].content
+    retrieved_docs = rag_response.get("retrieved_docs", [])
     # Evaluate correctness asynchronously
     score = await correctness_metric.ascore(
         question=question,
@@ -311,7 +311,7 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     scoreFaithfulness = await scorerFaithfulness.ascore(
         user_input=question,
         response=model_response,
-        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])]
+        retrieved_contexts=[doc.page_content for doc in retrieved_docs]
     )
 
     embeddings = embedding_factory("openai", model="text-embedding-3-small", client=client)
@@ -328,7 +328,7 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     scoreContextPrecision = await scorerContextPrecision.ascore(
         user_input=question,
         reference=row["expected_answer"],
-        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])]
+        retrieved_contexts=[doc.page_content for doc in retrieved_docs]
     )
 
     # Create metric
@@ -337,7 +337,7 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     # Evaluate
     scoreContextRecall = await scorerContextRecall.ascore(
         user_input=question,
-        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])],
+        retrieved_contexts=[doc.page_content for doc in retrieved_docs],
         reference=row["expected_answer"]
     )
     # Get trace ID and construct trace URL
@@ -362,7 +362,7 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
         "mlflow_trace_url": trace_url,
         "retrieved_documents": [
             (doc.page_content[:200] + "..." if doc.page_content and len(doc.page_content) > 200 else doc.page_content)
-            for doc in rag_response.get("retrieved_docs", [])
+            for doc in retrieved_docs
         ]
     }
     
@@ -411,12 +411,10 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
             documents = doc_processor.process_urls(urls)
             # Load the index
             vector_store.create_vectorstore(documents)
-            agenticRAGTool = AgenticRAGTool(vector_store.get_retriever(), llm)
    
             graph_builder = AgenticGraphBuilder(
                 retriever=vector_store.get_retriever(),
                 llm=llm,
-                tool=agenticRAGTool.retrieve_docs
             )
 
             graph_builder.build()
@@ -427,7 +425,7 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
         logger.info("Agentic RAG system initialized!")
 
         # Run evaluation experiment
-        experiment_results = await evaluate_rag.arun(
+        experiment_results = await evaluate_agentic_rag.arun(
                dataset, 
                name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
                rag=graph_builder,

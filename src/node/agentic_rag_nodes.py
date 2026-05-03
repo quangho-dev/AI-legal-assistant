@@ -151,7 +151,6 @@ Ví dụ về output:
           model_with_tools = self.llm.bind_tools([retrieve_docs])
          
           response = model_with_tools.invoke(state["messages"])
-          
           return {"messages": [response]}
 
     def grade_documents(self, state: AgenticRAGState) -> Literal["generate_answer", "rewrite_question"]:
@@ -187,4 +186,4 @@ Ví dụ về output:
             context = state["messages"][-1].content
             prompt = GENERATE_PROMPT.format(question=question, context=context)
             response = self.llm.invoke([{"role": "user", "content": prompt}])
-            return {"messages": [response], "retrieved_docs": self.retrieved_docs}
+            return {"messages": [response]}

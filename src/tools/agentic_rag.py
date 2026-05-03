@@ -17,7 +17,6 @@ def retrieve_docs(query: str, runtime: ToolRuntime[None, AgenticRAGState]) -> Co
         chunk_overlap=Config.CHUNK_OVERLAP
     )
     vector_store = VectorStore()
-
     documents = doc_processor.process_urls(urls)
         # Load the index
     vector_store.create_vectorstore(documents)
