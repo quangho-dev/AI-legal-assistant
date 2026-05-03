@@ -1,6 +1,8 @@
 from src.graph_builder.analyzing_docs_graph_builder import AnalyzingDocsGraphBuilder
+from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
 from src.document_ingestion.document_processor import DocumentProcessor
 from src.vectorstore.vectorstore import VectorStore
+from src.node.agentic_rag_nodes import AgenticRAGNodes
 from src.config.config import Config
 from pathlib import Path
 import sys
@@ -9,6 +11,9 @@ import getpass
 import os
 from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
+from langchain_core.messages import convert_to_messages
+from IPython.display import Image, display
+
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent))
@@ -32,12 +37,15 @@ llmOllama = ChatOllama(model="llama3")
 def main():
     print("Hello from ai-legal-assistant!")
     llm = Config.get_llm()
-    rag_system, doc_counts = initialize_rag(llmGroq)
+    agentic_rag_builder = initialize_agentic_rag(llm)
 
-    # result = rag_system.run("Theo như hợp đồng lao động, Hồ Anh Quang có bị bất lợi gì về lương và trợ cấp không?", "Người lao dộng")
-    result = rag_system.run("Thời gian làm việc trong hợp đồng lao động có phù hợp với quy định của công ty Unica hay không?", "Người lao dộng")
-
-    print(f"Answer: {result['answer']}")
+    res = agentic_rag_builder.run("Xin cho biết, việc xác lập, thực hiện quyền sở hữu, quyền khác đối với tài sản dựa trên những nguyên tắc nào? Hãy đối chiếu với luật Dân sự Việt Nam 2015")
+    res["messages"][-1].pretty_print()
+    # for chunk in agentic_rag_builder.stream("Xin cho biết, việc xác lập, thực hiện quyền sở hữu, quyền khác đối với tài sản dựa trên những nguyên tắc nào? Hãy đối chiếu với luật Dân sự Việt Nam 2015"):
+    #  for node, update in chunk.items():
+    #     print("Update from node", node)
+    #     update["messages"][-1].pretty_print()
+    #     print("\n\n")
 
 def initialize_rag(llm):
     """Initialize the RAG system (cached)"""
@@ -67,6 +75,32 @@ def initialize_rag(llm):
 
     except Exception as e:
         print(f"Error initializing RAG system: {e}")
+        return None
+
+def initialize_agentic_rag(llm):
+    """Initialize the Agentic RAG system"""
+    try:
+        doc_processor = DocumentProcessor(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+
+         # Use default URLs
+        urls = Config.DEFAULT_URLS
+        
+        vector_store = VectorStore()
+
+        documents = doc_processor.process_urls(urls)
+        # Load the index
+        vector_store.create_vectorstore(documents)
+   
+        graph_builder = AgenticGraphBuilder(
+            retriever=vector_store.get_retriever(),
+            llm=llm,
+        )
+        return graph_builder
+    except Exception as e:
+        print(f"Error initializing Agentic RAG system: {e}")
         return None
 
 if __name__ == "__main__":

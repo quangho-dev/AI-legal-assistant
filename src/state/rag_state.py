@@ -2,9 +2,11 @@
 
 from typing import Annotated, List, Optional
 from langchain_core.messages import content
+from numpy import identity
 from pydantic import BaseModel, Field
 from langchain_core.documents import Document
 import operator
+from langgraph.graph import MessagesState
 
 class RelevantLaw(BaseModel):
     """State object for relevant laws retrieval"""
@@ -20,3 +22,10 @@ class RAGState(BaseModel):
     answer: str = ""
     relevant_laws: Optional[RelevantLaw] = Field(default=None, description="Content of the relevant law")
 
+class AgenticRAGState(MessagesState):
+    """State object for RAG workflow"""
+    
+    question: str = ""
+    retrieved_docs: List[Document] = []
+    answer: str = ""
+    relevant_laws: Optional[RelevantLaw] = Field(default=None, description="Content of the relevant law")

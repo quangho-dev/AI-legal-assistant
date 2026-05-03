@@ -22,3 +22,4 @@ mlflow
 langchain-groq
 langchain_ollama
 langchain-deepseek
+ipython

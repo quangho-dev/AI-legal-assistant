@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 from ragas import Dataset, experiment
 from ragas.llms import llm_factory
 from ragas.metrics import DiscreteMetric
+from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
 from src.graph_builder.graph_builder import GraphBuilder
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
@@ -31,6 +32,8 @@ from dotenv import load_dotenv
 import getpass
 from langchain_groq import ChatGroq
 import mlflow
+from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
+from src.tools.agentic_rag import AgenticRAGTool
 
 import sys
 from pathlib import Path
@@ -77,7 +80,7 @@ logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 def download_and_save_dataset() -> Path:
     """Download the HuggingFace doc Q&A dataset from GitHub."""
-    dataset_path = Path("datasets/mini_version_of_examples.csv")
+    dataset_path = Path("datasets/civil_law_qa_eval.csv")
     dataset_path.parent.mkdir(parents=True, exist_ok=True)
 
     if dataset_path.exists():
@@ -108,7 +111,7 @@ def create_ragas_dataset(dataset_path: Path) -> Dataset:
     df = pd.read_csv(dataset_path)
     
     for _, row in df.iterrows():
-        dataset.append({"question": row["inputs/question"], "expected_answer": row["outputs/answer"]})
+        dataset.append({"question": row["question"], "expected_answer": row["expected_answer"]})
     
     dataset.save()
     logger.info(f"Created Ragas dataset with {len(df)} samples")
@@ -275,6 +278,96 @@ async def evaluate_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     
     return result
 
+@experiment()
+async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
+    """
+    Run RAG evaluation on a single row.
+    
+    Args:
+        row: Dictionary containing question, context, and expected_answer
+        rag: Pre-initialized RAG instance
+        llm: Pre-initialized LLM client for evaluation
+        
+    Returns:
+        Dictionary with evaluation results
+    """
+    question = row["question"]
+    
+    # Query the RAG system
+    rag_result = await rag.run(question)
+
+    model_response = rag_result['messages'][-1]['content']
+
+    # Evaluate correctness asynchronously
+    score = await correctness_metric.ascore(
+        question=question,
+        expected_answer=row["expected_answer"],
+        response=model_response,
+        llm=llm
+    )
+
+    scorerFaithfulness = Faithfulness(llm=llm)
+
+    scoreFaithfulness = await scorerFaithfulness.ascore(
+        user_input=question,
+        response=model_response,
+        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])]
+    )
+
+    embeddings = embedding_factory("openai", model="text-embedding-3-small", client=client)
+    # Create metric
+    scorerAnswerRelevancy = AnswerRelevancy(llm=llm, embeddings=embeddings)
+
+    scoreAnswerRelevancy = await scorerAnswerRelevancy.ascore(
+        user_input=question,
+        response=model_response,
+    )
+    # Create metric
+    scorerContextPrecision = ContextPrecision(llm=llm)
+
+    scoreContextPrecision = await scorerContextPrecision.ascore(
+        user_input=question,
+        reference=row["expected_answer"],
+        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])]
+    )
+
+    # Create metric
+    scorerContextRecall = ContextRecall(llm=llm)
+
+    # Evaluate
+    scoreContextRecall = await scorerContextRecall.ascore(
+        user_input=question,
+        retrieved_contexts=[doc.page_content for doc in rag_response.get("retrieved_docs", [])],
+        reference=row["expected_answer"]
+    )
+    # Get trace ID and construct trace URL
+    trace_id = rag_response.get("mlflow_trace_id", "N/A")
+    trace_url = construct_mlflow_trace_url(trace_id) if trace_id != "N/A" else "N/A"
+    
+    # Return evaluation results
+    result = {
+        **row,
+        "model_response": model_response,
+        "correctness_score": 1 if score.value == "pass" else 0,
+        "correctness_reason": score.reason,
+        "faithfulness_score": scoreFaithfulness.value,
+        "faithfulness_reason": scoreFaithfulness.reason,
+        "answer_relevancy_score": scoreAnswerRelevancy.value,
+        "answer_relevancy_reason": scoreAnswerRelevancy.reason,
+        "context_precision_score": scoreContextPrecision.value,
+        "context_precision_reason": scoreContextPrecision.reason,
+        "context_recall_score": scoreContextRecall.value,
+        "context_recall_reason": scoreContextRecall.reason,
+        "mlflow_trace_id": trace_id,
+        "mlflow_trace_url": trace_url,
+        "retrieved_documents": [
+            (doc.page_content[:200] + "..." if doc.page_content and len(doc.page_content) > 200 else doc.page_content)
+            for doc in rag_response.get("retrieved_docs", [])
+        ]
+    }
+    
+    return result
+
 async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: Optional[str] = None):
     """
     Simple function to run RAG evaluation experiment.
@@ -293,59 +386,99 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
         raise ValueError(
             "OPENAI_API_KEY environment variable is not set. "
             "Please set your OpenAI API key: export OPENAI_API_KEY='your_key'"
-        )
+          )
     
-    # Prepare dataset and initialize system
+         # Prepare dataset and initialize system
     logger.info("Initializing RAG system...")
     dataset = create_ragas_dataset(download_and_save_dataset())
     
     # Initialize RAG system with inline client creation
     openai_client = AsyncOpenAI(api_key=api_key)
 
-    try:
-        # Initialize components
-        llm = Config.get_llm()
-        doc_processor = DocumentProcessor(
-            chunk_size=Config.CHUNK_SIZE,
-            chunk_overlap=Config.CHUNK_OVERLAP
-        )
-        vector_store = VectorStore()
+    if mode == "agentic":
+        logger.info("Running in AGENTIC RAG mode")
+        try:        # Initialize components
+            llm = Config.get_llm()
+            doc_processor = DocumentProcessor(
+                   chunk_size=Config.CHUNK_SIZE,
+                   chunk_overlap=Config.CHUNK_OVERLAP
+              )
+            vector_store = VectorStore()
 
-        # Use default URLs
-        urls = Config.DEFAULT_URLS
-        
-        documents = doc_processor.process_urls(urls)
-        # Load the index
-        vector_store.create_vectorstore(documents)
-        
-        # Build graph
-        graph_builder = GraphBuilder(
-            retriever=vector_store.get_retriever(),
-            llm=llm
-        )
-        graph_builder.build()
+                # Use default URLs
+            urls = Config.DEFAULT_URLS
 
-    except Exception as e:
-        print(f"Error initializing RAG system: {e}")
-        return None, 0
-        
-    logger.info("RAG system initialized!")
-    
-    # # Run evaluation experiment
-    experiment_results = await evaluate_rag.arun(
-            dataset, 
-            name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
-            rag=graph_builder,
-            llm=llm_factory("gpt-4o-mini", client=openai_client, temperature=0, top_p=None),
+            documents = doc_processor.process_urls(urls)
+            # Load the index
+            vector_store.create_vectorstore(documents)
+            agenticRAGTool = AgenticRAGTool(vector_store.get_retriever(), llm)
+   
+            graph_builder = AgenticGraphBuilder(
+                retriever=vector_store.get_retriever(),
+                llm=llm,
+                tool=agenticRAGTool.retrieve_docs
             )
-    # # Print basic results
-    if experiment_results:
-        pass_count = sum(1 for result in experiment_results if result.get("correctness_score") == "pass")
-        total_count = len(experiment_results)
-        pass_rate = (pass_count / total_count) * 100 if total_count > 0 else 0
+
+            graph_builder.build()
+        except Exception as e:
+                print(f"Error initializing RAG system: {e}")
+                return None, 0
+
+        logger.info("Agentic RAG system initialized!")
+
+        # Run evaluation experiment
+        experiment_results = await evaluate_rag.arun(
+               dataset, 
+               name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
+               rag=graph_builder,
+               llm=llm_factory("gpt-4o-mini", client=openai_client, temperature=0, top_p=None),
+              )
+    else:
+        logger.info("Running in NAIVE RAG mode")
+    
+        try:        # Initialize components
+              llm = Config.get_llm()
+              doc_processor = DocumentProcessor(
+                   chunk_size=Config.CHUNK_SIZE,
+                   chunk_overlap=Config.CHUNK_OVERLAP
+              )
+              vector_store = VectorStore()
+
+                # Use default URLs
+              urls = Config.DEFAULT_URLS
         
-        logger.info(f"Results: {pass_count}/{total_count} passed ({pass_rate:.1f}%)")
-    return experiment_results
+              documents = doc_processor.process_urls(urls)
+                # Load the index
+              vector_store.create_vectorstore(documents)
+        
+               # Build graph
+              graph_builder = GraphBuilder(
+                  retriever=vector_store.get_retriever(),
+                  llm=llm
+                )
+              graph_builder.build()
+
+        except Exception as e:
+                print(f"Error initializing RAG system: {e}")
+                return None, 0
+        
+        logger.info("Naive RAG system initialized!")
+    
+          # Run evaluation experiment
+        experiment_results = await evaluate_rag.arun(
+               dataset, 
+               name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
+               rag=graph_builder,
+               llm=llm_factory("gpt-4o-mini", client=openai_client, temperature=0, top_p=None),
+              )
+    # # Print basic results
+        if experiment_results:
+             pass_count = sum(1 for result in experiment_results if result.get("correctness_score") == "pass")
+             total_count = len(experiment_results)
+             pass_rate = (pass_count / total_count) * 100 if total_count > 0 else 0
+        
+             logger.info(f"Results: {pass_count}/{total_count} passed ({pass_rate:.1f}%)")
+             return experiment_results
 
 
 if __name__ == "__main__":
