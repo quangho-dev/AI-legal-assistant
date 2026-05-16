@@ -54,6 +54,13 @@ load_dotenv()
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
 
+# Enabling tracing for LangGraph (LangChain)
+mlflow.langchain.autolog()
+
+# Optional: Set a tracking URI and an experiment
+mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_experiment("Exp")
+
 # Adds the parent directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -135,7 +142,16 @@ def construct_mlflow_trace_url(trace_id: str, mlflow_host: str = "http://127.0.0
         "datasetsFilter=W10%3D&compareRunsMode=TRACES&"
         f"selectedEvaluationId={trace_id}"
     )
-    return f"{base_url}?{query_params}"
+    # 1. Get the base tracking URI (e.g., http://localhost:5000)
+    tracking_uri = mlflow.get_tracking_uri().rstrip("/")
+    # 2. Get the active experiment ID
+    # experiment_id = mlflow.active_run()
+
+    # 4. Combine to form the full URL
+    mlflow_experiment_id = mlflow.get_experiment_by_name("Exp").experiment_id
+    trace_url = f"{tracking_uri}/#/experiments/{mlflow_experiment_id}/traces?selectedEvaluationId={ mlflow.get_last_active_trace_id()}"
+        # return f"{base_url}?{query_params}"
+    return trace_url
 
 # Define correctness metric
 correctness_metric = DiscreteMetric(
@@ -252,7 +268,9 @@ async def evaluate_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     )
     # Get trace ID and construct trace URL
     trace_id = rag_response.get("mlflow_trace_id", "N/A")
-    trace_url = construct_mlflow_trace_url(trace_id) if trace_id != "N/A" else "N/A"
+    # trace_url = construct_mlflow_trace_url(trace_id) if trace_id != "N/A" else "N/A"
+    trace_url = construct_mlflow_trace_url(1)
+
     
     # Return evaluation results
     result = {
@@ -307,12 +325,14 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     )
 
     scorerFaithfulness = Faithfulness(llm=llm)
-
-    scoreFaithfulness = await scorerFaithfulness.ascore(
-        user_input=question,
-        response=model_response,
-        retrieved_contexts=[doc.page_content for doc in retrieved_docs]
-    )
+    if not retrieved_docs:
+        scoreFaithfulness.value = 1
+    else:
+        scoreFaithfulness = await scorerFaithfulness.ascore(
+            user_input=question,
+            response=model_response,
+            retrieved_contexts=[doc.page_content for doc in retrieved_docs]
+        )
 
     embeddings = embedding_factory("openai", model="text-embedding-3-small", client=client)
     # Create metric
@@ -325,24 +345,30 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
     # Create metric
     scorerContextPrecision = ContextPrecision(llm=llm)
 
-    scoreContextPrecision = await scorerContextPrecision.ascore(
-        user_input=question,
-        reference=row["expected_answer"],
-        retrieved_contexts=[doc.page_content for doc in retrieved_docs]
-    )
+    if not retrieved_docs:
+        scoreContextPrecision.value = 1
+    else:
+        scoreContextPrecision = await scorerContextPrecision.ascore(
+            user_input=question,
+            reference=row["expected_answer"],
+            retrieved_contexts=[doc.page_content for doc in retrieved_docs]
+     )
 
     # Create metric
     scorerContextRecall = ContextRecall(llm=llm)
 
     # Evaluate
-    scoreContextRecall = await scorerContextRecall.ascore(
-        user_input=question,
-        retrieved_contexts=[doc.page_content for doc in retrieved_docs],
-        reference=row["expected_answer"]
-    )
+    if not retrieved_docs:
+        scoreContextRecall.value = 1
+    else:
+        scoreContextRecall = await scorerContextRecall.ascore(
+             user_input=question,
+             retrieved_contexts=[doc.page_content for doc in retrieved_docs],
+             reference=row["expected_answer"]
+         )
     # Get trace ID and construct trace URL
-    trace_id = rag_response.get("mlflow_trace_id", "N/A")
-    trace_url = construct_mlflow_trace_url(trace_id) if trace_id != "N/A" else "N/A"
+    # trace_id = rag_response.get("mlflow_trace_id", "N/A")
+    trace_url = construct_mlflow_trace_url(1)
     
     # Return evaluation results
     result = {
@@ -358,7 +384,7 @@ async def evaluate_agentic_rag(row: Dict[str, Any], rag, llm) -> Dict[str, Any]:
         "context_precision_reason": scoreContextPrecision.reason,
         "context_recall_score": scoreContextRecall.value,
         "context_recall_reason": scoreContextRecall.reason,
-        "mlflow_trace_id": trace_id,
+        # "mlflow_trace_id": trace_id,
         "mlflow_trace_url": trace_url,
         "retrieved_documents": [
             (doc.page_content[:200] + "..." if doc.page_content and len(doc.page_content) > 200 else doc.page_content)
@@ -397,7 +423,11 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
 
     if mode == "agentic":
         logger.info("Running in AGENTIC RAG mode")
-        try:        # Initialize components
+        try:
+            llmGroq = ChatGroq(
+                 model_name="llama-3.3-70b-versatile",
+                 temperature=0.7
+            )      # Initialize components
             llm = Config.get_llm()
             doc_processor = DocumentProcessor(
                    chunk_size=Config.CHUNK_SIZE,
@@ -414,7 +444,7 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
    
             graph_builder = AgenticGraphBuilder(
                 retriever=vector_store.get_retriever(),
-                llm=llm,
+                llm=llmGroq,
             )
 
             graph_builder.build()

@@ -23,3 +23,6 @@ langchain-groq
 langchain_ollama
 langchain-deepseek
 ipython
+rank_bm25
+langchain_chroma
+pymupdf4llm

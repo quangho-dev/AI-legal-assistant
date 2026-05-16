@@ -12,9 +12,8 @@ sys.path.append(str(Path(__file__).parent))
 from src.config.config import Config
 from src.document_ingestion.document_processor import DocumentProcessor
 from src.vectorstore.vectorstore import VectorStore
-from src.graph_builder.graph_builder import GraphBuilder
-from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
+from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
 
 # Page configuration
 st.set_page_config(
@@ -22,6 +21,14 @@ st.set_page_config(
     page_icon="⚖️",
     layout="centered"
 )
+
+st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"] {
+    display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Simple CSS
 st.markdown("""
@@ -80,22 +87,27 @@ def initialize_rag():
 
         embeddings = OpenAIEmbeddings()
 
-        folder_path='my_faiss_index'
-        # Load the index
-        new_db = FAISS.load_local(
-            folder_path,
-            embeddings,
-            allow_dangerous_deserialization=True # Required as it uses pickle
+        doc_processor = DocumentProcessor(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
         )
-        
+         # Use default URLs
+        urls = Config.DEFAULT_URLS
+
+        vector_store = VectorStore()
+
+        documents = doc_processor.process_urls(urls)
+
+        vector_store.create_vectorstore(documents)
+
         # Build graph
-        graph_builder = GraphBuilder(
-            retriever=new_db.as_retriever(),
-            llm=llm
+        graph_builder = AgenticGraphBuilder(
+            retriever=vector_store.get_retriever(),
+            llm=llm,
         )
         graph_builder.build()
         
-        return graph_builder, new_db.index.ntotal
+        return graph_builder
     except Exception as e:
         st.error(f"Failed to initialize: {str(e)}")
         return None, 0
@@ -110,7 +122,7 @@ def main():
     # Initialize system
     if not st.session_state.initialized:
         with st.spinner("Đang tải hệ thống..."):
-            rag_system, num_chunks = initialize_rag()
+            rag_system = initialize_rag()
             if rag_system:
                 st.session_state.rag_system = rag_system
                 st.session_state.initialized = True
@@ -140,20 +152,20 @@ def main():
                 # Add to history
                 st.session_state.history.append({
                     'question': question,
-                    'answer': result['answer'],
+                    'answer': result["messages"][-1],
                     'time': elapsed_time
                 })
                 
                 # Display answer
                 st.markdown("### 💡 Câu trả lời")
-                st.success(result["answer"])
+                st.success(result["messages"][-1].content)
 
                 laws = _relevant_laws_as_items(result.get("relevant_laws"))
                 if laws:
                     st.markdown("### ⚖️ Điều luật liên quan")
                     for law in laws:
                         with st.expander(law["name"], expanded=False):
-                            st.markdown(law["content"])
+                            st.markdown(law["content"].content)
 
                 st.caption(f"⏱️ Thời gian phản hồi: {elapsed_time:.2f} giây")
     

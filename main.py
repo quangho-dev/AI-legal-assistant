@@ -37,7 +37,12 @@ llmOllama = ChatOllama(model="llama3")
 def main():
     print("Hello from ai-legal-assistant!")
     llm = Config.get_llm()
-    agentic_rag_builder = initialize_agentic_rag(llm)
+
+    llmGroq = ChatGroq(
+    model_name="llama-3.3-70b-versatile",
+    temperature=0.7
+)
+    agentic_rag_builder = initialize_agentic_rag(llmGroq)
 
     res = agentic_rag_builder.run("Sau khi bố mẹ mất, nhà chỉ còn tôi và em trai 15 tuổi. Nay tôi phải đi lấy chồng xa và kinh tế cũng khó khăn nên tôi muốn có người giám hộ cho em tôi. Xin hỏi, pháp luật quy định như thế nào về người giám hộ cho người chưa thành niên? Theo quy định pháp luật thì việc làm của Nga có đúng không? Quy chiếu với luật Dân sự Việt Nam 2015.")
     res["messages"][-1].pretty_print()
@@ -47,7 +52,6 @@ def main():
     #     print("Update from node", node)
     #     update["messages"][-1].pretty_print()
     #     print("\n\n")
-    print(f"Retrieved_docs: {res['retrieved_docs']}")
 
 def initialize_rag(llm):
     """Initialize the RAG system (cached)"""
