@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+
 class VectorStore:
     """Manages vector store operations"""
     
@@ -52,6 +55,34 @@ class VectorStore:
         docs_with_metadata = self._merge_metadata(documents, metadata, metadata_list)
         self.vectorstore = FAISS.from_documents(docs_with_metadata, self.embedding)
         self.retriever = self.vectorstore.as_retriever()
+
+    def create_hydrid_vectorstore(
+        self,
+        documents: List[Document],
+        metadata: Optional[Dict[str, Any]] = None,
+        metadata_list: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """
+        Create vector store from documents
+        
+        Args:
+            documents: List of documents to embed
+            metadata: Shared metadata to apply to all documents
+            metadata_list: Per-document metadata (same length as documents)
+        """
+        docs_with_metadata = self._merge_metadata(documents, metadata, metadata_list)
+        dense_vectorstore = FAISS.from_documents(docs_with_metadata, self.embedding)
+        dense_retriever = dense_vectorstore.as_retriever()
+
+        sparse_retriever=BM25Retriever.from_documents(docs_with_metadata)
+        sparse_retriever.k=3
+
+        hybrid_retriever=EnsembleRetriever(
+                retrievers=[dense_retriever,sparse_retriever],
+                weight=[0.7,0.3]
+         )
+        
+        self.retriever=hybrid_retriever
 
     def add_documents(
         self,

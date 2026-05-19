@@ -1,3 +1,4 @@
+from src.graph_builder.self_rag_builder import SelfRAGGraphBuilder
 from src.graph_builder.analyzing_docs_graph_builder import AnalyzingDocsGraphBuilder
 from src.graph_builder.agentic_rag_builder import AgenticGraphBuilder
 from src.document_ingestion.document_processor import DocumentProcessor
@@ -65,7 +66,7 @@ def initialize_rag(llm):
 
         docs = doc_processor.process_urls(urls=["/Users/admin/Documents/Personal projects/AI assistant/data/HD.HO ANH QUANG.pdf"])
         
-        vector_store.create_vectorstore(docs, {"type_of_doc":"target_doc"})
+        vector_store.create_hydrid_vectorstore(docs, {"type_of_doc":"target_doc"})
         
         reference_docs = doc_processor.process_urls(urls=["/Users/admin/Documents/Personal projects/AI assistant/data/SỔ-TAY-NHÂN-VIÊN.pdf"])
         
@@ -99,11 +100,12 @@ def initialize_agentic_rag(llm):
         documents = doc_processor.process_urls(urls)
         # Load the index
         vector_store.create_vectorstore(documents)
-   
-        graph_builder = AgenticGraphBuilder(
+
+        graph_builder = SelfRAGGraphBuilder(
             retriever=vector_store.get_retriever(),
             llm=llm,
         )
+        print(f"graph builder initialized: {graph_builder}")
         return graph_builder
     except Exception as e:
         print(f"Error initializing Agentic RAG system: {e}")
@@ -111,3 +113,11 @@ def initialize_agentic_rag(llm):
 
 if __name__ == "__main__":
     main()
+
+def test_main():
+    """Test the main function"""
+    try:
+        main()
+        print("Main function ran successfully")
+    except Exception as e:
+        print(f"Error running main function: {e}")
