@@ -42,33 +42,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def _relevant_laws_as_items(relevant_laws: Any) -> list[dict[str, str]]:
-    """Normalize graph output to a list of dicts with name and content."""
-    if relevant_laws is None:
-        return []
-    if isinstance(relevant_laws, list):
-        raw = relevant_laws
-    else:
-        raw = [relevant_laws]
-    items: list[dict[str, str]] = []
-    for law in raw:
-        if isinstance(law, dict):
-            items.append(
-                {
-                    "name": str(law.get("name") or "Điều luật"),
-                    "content": str(law.get("content") or ""),
-                }
-            )
-        else:
-            items.append(
-                {
-                    "name": str(getattr(law, "name", "") or "Điều luật"),
-                    "content": str(getattr(law, "content", "") or ""),
-                }
-            )
-    return items
-
-
 def init_session_state():
     """Initialize session state variables"""
     if 'rag_system' not in st.session_state:
@@ -152,20 +125,13 @@ def main():
                 # Add to history
                 st.session_state.history.append({
                     'question': question,
-                    'answer': result["messages"][-1],
+                    'answer': result["messages"][-1].content,
                     'time': elapsed_time
                 })
                 
                 # Display answer
                 st.markdown("### 💡 Câu trả lời")
                 st.success(result["messages"][-1].content)
-
-                laws = _relevant_laws_as_items(result.get("relevant_laws"))
-                if laws:
-                    st.markdown("### ⚖️ Điều luật liên quan")
-                    for law in laws:
-                        with st.expander(law["name"], expanded=False):
-                            st.markdown(law["content"].content)
 
                 st.caption(f"⏱️ Thời gian phản hồi: {elapsed_time:.2f} giây")
     

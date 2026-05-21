@@ -14,7 +14,7 @@ from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
 from langchain_core.messages import convert_to_messages
 from IPython.display import Image, display
-
+from langchain.chat_models import init_chat_model
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent))
@@ -40,14 +40,15 @@ def main():
     llm = Config.get_llm()
 
     llmGroq = ChatGroq(
-    model_name="llama-3.3-70b-versatile",
+    model_name="openai/gpt-oss-120b",
     temperature=0.7
 )
-    agentic_rag_builder = initialize_agentic_rag(llmGroq)
+    model = init_chat_model("gpt-5.4")
+    agentic_rag_builder = initialize_agentic_rag(llm)
 
-    res = agentic_rag_builder.run("Sau khi bố mẹ mất, nhà chỉ còn tôi và em trai 15 tuổi. Nay tôi phải đi lấy chồng xa và kinh tế cũng khó khăn nên tôi muốn có người giám hộ cho em tôi. Xin hỏi, pháp luật quy định như thế nào về người giám hộ cho người chưa thành niên? Theo quy định pháp luật thì việc làm của Nga có đúng không? Quy chiếu với luật Dân sự Việt Nam 2015.")
+    res = agentic_rag_builder.run("Chị M kết hôn với anh H được 10 năm nay. Do chịu nhiều áp lực từ công việc, cuộc sống và gia đình, đặc biệt là sau khi con gái chị bị tại nạn qua đời, chị M đã phát bệnh tâm thần. Biết chị M bị bệnh, gia đình anh H đã xua đuổi nên bố mẹ đẻ chị M đã đón chị về ở. Xin hỏi, trách nhiệm phải nuôi dưỡng chị M trong trường hợp này thuộc về ai?")
     res["messages"][-1].pretty_print()
-    print(f'Answer: {res["messages"][-1].content}')
+    # print(f'Answer: {res["messages"][-1].content}')
     # for chunk in agentic_rag_builder.stream("Xin cho biết, việc xác lập, thực hiện quyền sở hữu, quyền khác đối với tài sản dựa trên những nguyên tắc nào? Hãy đối chiếu với luật Dân sự Việt Nam 2015"):
     #  for node, update in chunk.items():
     #     print("Update from node", node)
@@ -99,9 +100,9 @@ def initialize_agentic_rag(llm):
 
         documents = doc_processor.process_urls(urls)
         # Load the index
-        vector_store.create_vectorstore(documents)
+        vector_store.create_hydrid_vectorstore(documents)
 
-        graph_builder = SelfRAGGraphBuilder(
+        graph_builder = AgenticGraphBuilder(
             retriever=vector_store.get_retriever(),
             llm=llm,
         )

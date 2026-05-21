@@ -19,7 +19,7 @@ def retrieve_docs(query: str, runtime: ToolRuntime[None, AgenticRAGState]) -> Co
     vector_store = VectorStore()
     documents = doc_processor.process_urls(urls)
         # Load the index
-    vector_store.create_vectorstore(documents)
+    vector_store.create_hydrid_vectorstore(documents)
 
     retriever = vector_store.get_retriever()
     docs = retriever.invoke(query)

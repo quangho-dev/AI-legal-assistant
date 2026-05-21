@@ -36,10 +36,16 @@ REWRITE_PROMPT = (
 GENERATE_PROMPT = (
     "You are an assistant for question-answering tasks. "
     "Use the following pieces of retrieved context to answer the question. "
-    "If you don't know the answer, just say that you don't know. "
-    "Use three sentences maximum and keep the answer concise.\n"
+    "If you don't know the answer, just say that you don't know."
+    "Return answer in markdown format. \n"
     "Question: {question} \n"
     "Context: {context}"
+
+    "At the end, provide law references , example:" \
+    "Tài liệu tham khảo"
+    "1. Điều 123, luật thừa kế - Bộ luật dân sự 2015"
+
+    "if you don't know any law references, don't provide them"
 )
 
 # @tool

@@ -14,7 +14,8 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     
     # Model Configuration
-    LLM_MODEL = "openai:gpt-4o"
+    # LLM_MODEL = "openai:gpt-4o"
+    LLM_MODEL = "gpt-5.5-2026-04-23"
     
     # Document Processing
     CHUNK_SIZE = 500

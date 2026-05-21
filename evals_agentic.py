@@ -36,6 +36,7 @@ load_dotenv()
 
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+os.environ["LANGCHAIN_PROJECT"]="abc_test"
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 
@@ -124,7 +125,7 @@ async def run_experiment(row: Dict[str, Any]):
         vector_store.create_vectorstore(documents)
         
         # Build graph
-        graph_builder = GraphBuilder(
+        graph_builder = AgenticGraphBuilder(
                 retriever=vector_store.get_retriever(),
                 llm=llmGroq
             )
@@ -134,14 +135,14 @@ async def run_experiment(row: Dict[str, Any]):
                 print(f"Error initializing RAG system: {e}")
                 return None, 0
         
-    logger.info("Naive RAG system initialized!")
+    logger.info("Agentic RAG system initialized!")
     
     # Query the RAG system
     question = row['question']
 
     # Query the RAG system
     rag_response = await graph_builder.arun(question)
-    model_response = rag_response.get('answer')
+    model_response = rag_response["messages"][-1].content
 
     # Evaluate correctness asynchronously
     score = await correctness_metric.ascore(
