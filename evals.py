@@ -87,7 +87,7 @@ logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 def download_and_save_dataset() -> Path:
     """Download the HuggingFace doc Q&A dataset from GitHub."""
-    dataset_path = Path("datasets/mini_version_of_examples.csv")
+    dataset_path = Path("datasets/civil_law_qa_eval.csv")
     dataset_path.parent.mkdir(parents=True, exist_ok=True)
 
     if dataset_path.exists():
@@ -112,13 +112,13 @@ def download_and_save_dataset() -> Path:
 
 def create_ragas_dataset(dataset_path: Path) -> Dataset:
     """Create a Ragas Dataset from the downloaded CSV file."""
-    dataset = Dataset(name="mini_version_of_examples", backend="local/csv", root_dir="evals")
+    dataset = Dataset(name="civil_law_qa_eval", backend="local/csv", root_dir="evals")
     
     import pandas as pd
     df = pd.read_csv(dataset_path)
     
     for _, row in df.iterrows():
-        dataset.append({"question": row["inputs/question"], "expected_answer": row["outputs/answer"]})
+        dataset.append({"question": row["question"], "expected_answer": row["expected_answer"]})
     
     dataset.save()
     logger.info(f"Created Ragas dataset with {len(df)} samples")
@@ -459,12 +459,16 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
                dataset, 
                name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
                rag=graph_builder,
-               llm=llm_factory("gpt-4o-mini", client=openai_client, temperature=0, top_p=None),
+               llm=llmGroq,
               )
     else:
         logger.info("Running in NAIVE RAG mode")
     
         try:        # Initialize components
+              llmGroq = ChatGroq(
+                 model_name="llama-3.3-70b-versatile",
+                 temperature=0.7
+              ) 
               llm = Config.get_llm()
               doc_processor = DocumentProcessor(
                    chunk_size=Config.CHUNK_SIZE,
@@ -482,7 +486,7 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
                # Build graph
               graph_builder = GraphBuilder(
                   retriever=vector_store.get_retriever(),
-                  llm=llm
+                  llm=llmGroq
                 )
               graph_builder.build()
 
@@ -497,7 +501,7 @@ async def run_experiment(mode: str = "naive", model: str = "gpt-4o-mini", name: 
                dataset, 
                name=name or f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{'agenticrag' if mode == 'agentic' else 'naiverag'}",
                rag=graph_builder,
-               llm=llm_factory("gpt-4o-mini", client=openai_client, temperature=0, top_p=None),
+               llm=llmGroq,
               )
     # # Print basic results
         if experiment_results:
